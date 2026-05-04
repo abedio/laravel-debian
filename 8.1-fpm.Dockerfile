@@ -1,6 +1,6 @@
-FROM ghcr.io/abedio/php-debian:8.1-mysql-nginx
+FROM ghcr.io/itsmattius/php-debian:8.1-fpm
 
-COPY fs/etc/supervisor/conf.d/worker.conf /etc/supervisor/conf.d/
+COPY .docker/etc/supervisor/conf.d/worker.conf /etc/supervisor/conf.d/
 
 RUN rm -rf /var/www/html && \
 	ln -s /var/www/public /var/www/html && \

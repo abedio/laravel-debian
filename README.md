@@ -1,97 +1,110 @@
-# Laravel Alpine
-Laravel PHP Framework running on debian base Docker Image with Nginx 🐳
+# laravel-debian
 
-![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/abedio/laravel-debian/ci.yml?style=for-the-badge)
-[![LICENSE](https://img.shields.io/github/license/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/blob/master/LICENSE)
-[![Stars Count](https://img.shields.io/github/stars/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/stargazers)
-[![Forks Count](https://img.shields.io/github/forks/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/network/members)
-[![Watchers Count](https://img.shields.io/github/watchers/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/watchers)
-[![Issues Count](https://img.shields.io/github/issues/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/issues)
-[![Pull Request Count](https://img.shields.io/github/issues-pr/abedio/laravel-debian.svg?style=for-the-badge)](https://github.com/abedio/laravel-debian/pulls)
-[![Follow](https://img.shields.io/github/followers/dnj.svg?style=for-the-badge&label=Follow&maxAge=2592000)](https://github.com/dnj)
+Opinionated, production-ready Docker images for **Laravel** apps on Debian. Built **on top of [`php-debian`](https://github.com/itsmattius/php-debian)**, these images add the small set of conventions a Laravel app expects: `public/` as the document root, `artisan schedule:run` wired into cron, and a default `queue:work` supervisor program — so you can drop a Laravel project in and run.
 
-## Pull it from Github Registry
-To pull the docker image:
+## Available tags
+
+Built and published from [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on every push to `main`.
+
+| Tag | Base image |
+| --- | --- |
+| `7.4-fpm` | `ghcr.io/itsmattius/php-debian:7.4-fpm` |
+| `8.1-fpm` | `ghcr.io/itsmattius/php-debian:8.1-fpm` |
+| `8.2-fpm` | `ghcr.io/itsmattius/php-debian:8.2-fpm` |
+| `8.3-fpm` | `ghcr.io/itsmattius/php-debian:8.3-fpm` |
+| `8.4-fpm` | `ghcr.io/itsmattius/php-debian:8.4-fpm` |
+| `8.5-fpm` | `ghcr.io/itsmattius/php-debian:8.5-fpm` |
+
+Pull from GHCR:
+
 ```bash
-docker pull ghcr.io/abedio/laravel-debian:8.3-mysql-nginx
+docker pull ghcr.io/itsmattius/laravel-debian:8.3-fpm
 ```
+
+## What it adds on top of `php-debian`
+
+Inherits everything from the base — Nginx, PHP-FPM, Composer, ionCube, Redis, OPcache, supervisord, supercronic — and layers on:
+
+- **Document root → `/var/www/public`.** `/var/www/html` is replaced with a symlink to `/var/www/public`, so Nginx serves your Laravel `public/` directory.
+- **Scheduler.** `/etc/crontab` is rewritten to run `php /var/www/artisan schedule:run` every minute under supercronic.
+- **Queue worker.** A supervisor program runs `php /var/www/artisan queue:work` as `www-data`, with `autorestart` and `startretries=50`. See [`.docker/etc/supervisor/conf.d/worker.conf`](.docker/etc/supervisor/conf.d/worker.conf).
 
 ## Usage
-To run from current dir
+
+Mount your Laravel project root at `/var/www` (the image symlinks `/var/www/html` → `/var/www/public` for you):
+
 ```bash
-docker run -v $(pwd):/var/www -p 80:80 ghcr.io/abedio/laravel-debian:8.3-mysql-nginx "composer install --prefer-dist"
+docker run -d \
+  --name myapp \
+  -p 8080:80 \
+  -v "$PWD":/var/www \
+  ghcr.io/itsmattius/laravel-debian:8.3-fpm
 ```
 
-## What's Included
- - [Composer](https://getcomposer.org/) ( v2 - updated )
- - CRON
- - [Supervisor](http://supervisord.org) 
+Or with `compose.yaml`:
 
-## Other Details
-- Debian base image
-
-## PHP Extension
-- opcache
-- mysqli
-- pdo 
-- pdo_mysql
-- sockets
-- json
-- intl
-- gd
-- xml
-- zip
-- exif
-- bz2
-- pcntl
-- gmp
-- bcmath
-- inotify
-- redis
-- memcached
-- soap
-- ssh2
-
-## Adding other PHP Extension
-You can add additional PHP Extensions by running `docker-ext-install` command. Don't forget to install necessary dependencies for required extension.
-```bash
-FROM ghcr.io/abedio/laravel-debian:8.1-mysql-nginx
-RUN docker-php-ext-install xdebug
+```yaml
+services:
+  app:
+    image: ghcr.io/itsmattius/laravel-debian:8.3-fpm
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www
+    environment:
+      APP_ENV: production
+      APP_KEY: base64:...
 ```
 
-## Adding CRON
-```bash
-FROM ghcr.io/abedio/laravel-debian:8.1-mysql-nginx
-echo '0 * * ? * * /usr/local/bin/php  /var/www/artisan package:command >> /dev/null 2>&1' > /etc/crontab
-```
- 
-## Adding custom Supervisor config
- You can add your own Supervisor config inside `/etc/supervisor/conf.d/` for Laravel Queue or Laravel Horizon. File extension needs to be `*.conf`. By default this image added `worker` process in supervisor. 
+For a typical first run, install dependencies and run migrations:
 
-E.g: For Laravel Horizon make file `horizon.conf`
+```bash
+docker exec myapp composer install --no-dev --prefer-dist --optimize-autoloader
+docker exec myapp php /var/www/artisan migrate --force
+```
+
+## Extending the image
+
+Because this image is just a thin layer on top of `php-debian`, you extend it the same way.
+
+### Add a PHP extension
+
+```dockerfile
+FROM ghcr.io/itsmattius/laravel-debian:8.3-fpm
+RUN docker-php-ext-install pdo_pgsql
+```
+
+### Add a supervisor program (e.g. Horizon)
+
+Create `horizon.conf`:
+
 ```ini
 [program:horizon]
 process_name=%(program_name)s
 command=php /var/www/artisan horizon
+user=www-data
 autostart=true
 autorestart=true
-user=forge
 redirect_stderr=true
 stdout_logfile=/var/log/laravel-horizon.log
 ```
-On your Docker image
-```bash
-FROM ghcr.io/abedio/laravel-debian:8.3-mysql-nginx
+
+Drop it into `/etc/supervisor/conf.d/` (any `*.conf` file in that directory is picked up):
+
+```dockerfile
+FROM ghcr.io/itsmattius/laravel-debian:8.3-fpm
 COPY horizon.conf /etc/supervisor/conf.d/
 ```
-For more details on config http://supervisord.org/configuration.html
 
+### Add a cron job
 
-## Bug Reporting
+`/etc/crontab` is read by [supercronic](https://github.com/aptible/supercronic). Append your own jobs alongside the scheduler:
 
-If you find any bugs, please report it by submitting an issue on our [issue page](https://github.com/abedio/laravel-debian/issues) with a detailed explanation. Giving some screenshots would also be very helpful.
+```dockerfile
+FROM ghcr.io/itsmattius/laravel-debian:8.3-fpm
+RUN echo '0 * * * * /usr/local/bin/php /var/www/artisan my:hourly-task' >> /etc/crontab
+```
 
-## Feature Request
+## License
 
-You can also submit a feature request on our [issue page](https://github.com/abedio/laravel-debian/issues) or [discussions](https://github.com/abedio/laravel-debian/discussions) and I will try to implement it as soon as possible.
-
+[MIT](LICENSE) © Mehdi Abedi
